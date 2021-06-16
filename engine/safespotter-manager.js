@@ -11,6 +11,7 @@ const routes = require('../config/routes');
 const TelegramBot = require('node-telegram-bot-api');
 const token = '1875488441:AAG1OJjsJZC4lucjFq9E-ThSrq-TcDrm8do';
 const bot = new TelegramBot(token, {polling: true});
+const webpush = require('web-push');
 
 /**Metodo che avvia il download del file video*/
 const download = (url, path, callback) => {
@@ -20,20 +21,38 @@ const download = (url, path, callback) => {
 };
 
 /**Funzione che converte in stringa le condizioni di criticità*/
-function convertCondition(input) {
-    switch (parseInt(input)) {
-        case 0:
-            return 'NESSUNA';
+function convertAlertType(input) {
+    switch (input) {
         case 1:
-            return 'BASSA';
+            return 'Cambio di corsia illegale';
         case 2:
-            return 'DISCRETA';
+            return 'Traffico congestionato';
         case 3:
-            return 'MODERATA';
+            return 'Oggetto o persona in strada';
         case 4:
-            return 'ALTA';
+            return 'Invasione di area pedonale';
         case 5:
-            return 'MASSIMA';
+            return 'Possible incidente';
+        case 6:
+            return 'Veicolo in sosta vietata';
+        default:
+            return 'Errore anomalia';
+    }
+}
+
+/**Funzione che converte in stringa le condizioni di criticità*/
+function convertAlertLevel(input) {
+    switch (input) {
+        case '0':
+            return 'NESSUNA';
+        case '1':
+            return 'VERDE';
+        case '2':
+            return 'GIALLA';
+        case '3':
+            return 'ARANCIONE';
+        case '4':
+            return 'ROSSA';
     }
 }
 
@@ -83,6 +102,68 @@ function customDayDate(date) {
     return custom_date;
 }
 
+
+/** configurazione di default del lampione */
+function defaultLamppostConfiguration(lamp) {
+
+
+    lamp.date = new Date();
+    lamp.configuration =
+        [
+            {
+                "alert_id": "1",
+                "configuration_type": "0"
+            },
+            {
+                "alert_id": "2",
+                "configuration_type": "0"
+            },
+            {
+                "alert_id": "3",
+                "configuration_type": "0"
+            },
+            {
+                "alert_id": "4",
+                "configuration_type": "0"
+            },
+            {
+                "alert_id": "5",
+                "configuration_type": "0"
+            },
+            {
+                "alert_id": "6",
+                "configuration_type": "0"
+            }
+        ];
+    lamp.timers = [
+        {
+            "alert_level": "0",
+            "timer": 0
+        },
+        {
+            "alert_level": "1",
+            "timer": 900000
+        },
+        {
+            "alert_level": "2",
+            "timer": 900000
+        },
+        {
+            "alert_level": "3",
+            "timer": 900000
+        },
+        {
+            "alert_level": "4",
+            "timer": 900000
+        }
+    ];
+    lamp.alert_id = 0;
+    lamp.anomaly_level = 0;
+    lamp.condition = "Connesso";
+
+    return lamp;
+}
+
 /**funzione che crea le notifiche e aggiorna il lampione*/
 async function createNotification(lamp_id, alert_id) {
 
@@ -90,6 +171,7 @@ async function createNotification(lamp_id, alert_id) {
         let anomaly_level = 0;
         let lamp = await SafespotterManager.find({id: lamp_id});
         let timer = 0;
+        let timestamp = new Date();
 
         _.find(lamp[0].configuration, function (el) {
             if (el.alert_id == alert_id) {
@@ -103,9 +185,11 @@ async function createNotification(lamp_id, alert_id) {
             }
         });
 
+
         console.log("timer :", timer);
 
         bot.sendMessage(-534207478, 'Rilevato ' + lamp_id.via + ' in via ' + lamp_id);
+
 
         //se l'anomalia che arriva è minimo di livello 1 e maggiore uguale a quella già esistente
         if (anomaly_level >= lamp[0].anomaly_level || lamp[0].anomaly_level === undefined) {
@@ -114,7 +198,7 @@ async function createNotification(lamp_id, alert_id) {
                 {
                     alert_id: alert_id,
                     anomaly_level: anomaly_level,
-                    date: new Date(),
+                    date: timestamp,
                     checked: false,
                 });
 
@@ -133,12 +217,18 @@ async function createNotification(lamp_id, alert_id) {
                 }, timer);
             }
 
+            if (anomaly_level >= 2) {
+                // notifiche push
+                routes.pushNotification(convertAlertLevel(anomaly_level), convertAlertType(alert_id), timestamp);
+            }
+
             //dati su mongo
             routes.dataUpdate(lamp_id); //richiamo l'emissione
 
             //check del lampione
             setTimeout(async () => {
-                await SafespotterManager.updateOne({id: lamp_id},
+                //aggiungere "where" sul timestamp
+                await SafespotterManager.updateOne({id: lamp_id, date: timestamp},
                     {
                         alert_id: 0,
                         anomaly_level: 0,
@@ -168,7 +258,14 @@ async function returnList(req, res) {
     }
 }
 
-/** API che riceve e salva le comunicazioni dai lampioni */
+/** API che riceve e salva le comunicazioni dai lampioni
+ *
+ *  Body:
+ *      lamp_id: number,
+ *      alert_id: number,
+ *      videoURL: string
+ *
+ * */
 async function updateLamppostStatus(req, res) {
 
     try {
@@ -221,7 +318,12 @@ async function updateLamppostStatus(req, res) {
 
 }
 
-/** API che preleva le informazioni salvate dei lampioni in ordine di data*/
+/** API che preleva le informazioni salvate dei lampioni in ordine di data
+ *
+ *  Parametri:
+ *      lamp_id: number
+ *
+ * */
 async function getStreetLampStatus(req, res) {
 
     try {
@@ -244,7 +346,13 @@ async function getStreetLampStatus(req, res) {
     }
 }
 
-/**API che setta il valore checked della notifica*/
+/**API che setta il valore checked della notifica
+ *
+ *  Body:
+ *      id: number
+ *      date: string
+ *
+ * */
 async function checkNotification(req, res) {
     try {
 
@@ -267,6 +375,17 @@ async function checkNotification(req, res) {
     }
 }
 
+
+/** API che aggiorna la configurazione di un lampione
+ *
+ * Parametri:
+ *  lamp_id: number
+ *
+ * Body:
+ *  alert_id: number
+ *  configuration_type: number
+ *
+ * */
 async function updateLamppostConfiguration(req, res) {
 
     // configuration_type = 0 -> nessuna notifica
@@ -302,7 +421,6 @@ async function updateLamppostConfiguration(req, res) {
             //devo controllare se l'alert id è presente dentro configuration
             //se presente allora devo aggiornare il configuration type
             //altrimenti devo pushare i due valori (alert_id, configuration_type)
-            console.log("doc config ", doc.configuration[_.findKey(doc.configuration, {'alert_id': alert_id})]);
             let index = _.indexOf(doc.configuration, doc.configuration[_.findKey(doc.configuration, {'alert_id': alert_id})]);
             if (index >= 0) {
                 doc.configuration[index].configuration_type = configuration_type;
@@ -330,12 +448,20 @@ async function updateLamppostConfiguration(req, res) {
 
 }
 
+
+/** API che preleva la configurazione di un lampione passato come parametro
+ *
+ *  Parametri:
+ *      lamp_id: number
+ *
+ * */
 async function getLamppostConfiguration(req, res) {
 
     try {
 
         const lamp_id = req.params.id;
         let configuration;
+        let timers;
         let doc = await SafespotterManager.findOne({id: lamp_id});
 
         if (doc == null) {
@@ -345,10 +471,12 @@ async function getLamppostConfiguration(req, res) {
         }
 
         configuration = doc.configuration;
+        timers = doc.timers;
 
         return res.status(HttpStatus.OK).send({
             lamp_id: lamp_id,
-            configuration: configuration
+            configuration: configuration,
+            timers: timers
         });
 
     } catch (error) {
@@ -361,11 +489,23 @@ async function getLamppostConfiguration(req, res) {
 
 }
 
+/** API che aggiorna i timer delle anomalie di un lampione
+ *
+ * Parametri:
+ *  lamp_id: number
+ *
+ * Body:
+ *  alert_level: number
+ *  timer: number
+ *
+ * */
 async function updateLamppostTimer(req, res) {
     try {
+
         const lamp_id = req.params.id;
-        const alert_level = req.body.alert_level;
+        const alert_level = req.body.alert_level.toString();
         const timer = parseInt(req.body.timer, 10); //value in ms
+        //const timer = req.body.timer;
 
         let doc = await SafespotterManager.findOne({id: lamp_id});
 
@@ -408,6 +548,12 @@ async function updateLamppostTimer(req, res) {
     }
 }
 
+/** API che preleva i timer di un lampione passato come parametro
+ *
+ *  Parametri:
+ *      lamp_id: number
+ *
+ * */
 async function getLamppostTimers(req, res) {
 
     try {
@@ -439,6 +585,134 @@ async function getLamppostTimers(req, res) {
 
 }
 
+/** API che aggiunge un lampione all'infrastruttura
+ *
+ * Body:
+ *  street: string
+ *  position: string
+ *
+ * */
+async function addLamppost(req, res) {
+
+    try {
+
+        let id = 1;
+        const safespotters = await SafespotterManager.find({});
+
+        if (safespotters.length > 0)
+        //get the max id value and then add 1
+            id = _.maxBy(safespotters, 'id').id + 1;
+
+
+        const street = req.body.street;
+        const latitude = req.body.lat;
+        const longitude = req.body.long;
+
+        let doc = new SafespotterManager;
+
+        doc.id = id;
+        doc.street = street;
+        doc.lat = latitude;
+        doc.long = longitude;
+
+        doc = defaultLamppostConfiguration(doc);
+
+        doc.save();
+
+        return res.status(HttpStatus.OK).send({
+            message: 'lamppost added successfully'
+        });
+
+    } catch (error) {
+        console.log(error);
+        return res.status(HttpStatus.INTERNAL_SERVER_ERROR).send({
+            error: "something went wrong adding the new lamppost"
+        });
+    }
+
+}
+
+/** API che aggiunge un lampione all'infrastruttura
+ *
+ * Parametri:
+ *  id: number
+ *
+ * */
+async function deleteLamppost(req, res) {
+    try {
+
+        const lamp_id = req.params.id;
+
+        await SafespotterManager.deleteOne({id: lamp_id}).then(
+            result => {
+                res.status(HttpStatus.OK).send({
+                    message: "lamppost deleted successfully"
+                })
+            }
+        ).catch(err => {
+            console.log(err);
+            return res.status(HttpStatus.BAD_REQUEST).send({
+                error: "lamppost id not detected"
+            });
+        });
+
+    } catch (error) {
+        console.log(error);
+        return res.status(HttpStatus.INTERNAL_SERVER_ERROR).send({
+            error: "something went wrong removing the lamppost"
+        });
+    }
+}
+
+/** API che aggiunge un lampione all'infrastruttura
+ *
+ * Body:
+ *  lamp_id: number
+ *  street: string
+ *  lat: number
+ *  long: number
+ *
+ * */
+async function updateLamppost(req, res) {
+
+    try {
+        // aggiungere controlli agli input
+        const lamp_id = req.body.lamp_id;
+        const street = req.body.street;
+        const latitude = req.body.lat;
+        const longitude = req.body.long;
+
+        await SafespotterManager.updateOne({id: lamp_id}, {
+            street: street,
+            lat: latitude,
+            long: longitude
+        }).then(
+            result => {
+                if (result.nModified)
+                    res.status(HttpStatus.OK).send({
+                        message: "lamppost updated successfully"
+                    });
+                else
+                    return res.status(HttpStatus.BAD_REQUEST).send({
+                        error: "lamppost id not detected"
+                    });
+            }
+        ).catch(err => {
+            console.log(err);
+            return res.status(HttpStatus.BAD_REQUEST).send({
+                error: "lamppost id not detected"
+            });
+        });
+
+    } catch (error) {
+        console.log(error);
+        return res.status(HttpStatus.INTERNAL_SERVER_ERROR).send({
+            error: "something went wrong updating the lamppost"
+        });
+    }
+
+}
+
 module.exports = {
     returnList,
     updateLamppostStatus,
@@ -447,5 +721,8 @@ module.exports = {
     updateLamppostConfiguration,
     getLamppostConfiguration,
     updateLamppostTimer,
-    getLamppostTimers
+    getLamppostTimers,
+    addLamppost,
+    deleteLamppost,
+    updateLamppost
 };
