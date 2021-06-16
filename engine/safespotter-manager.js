@@ -8,6 +8,9 @@ const fs = require('fs');
 const request = require('request');
 const SocketEmit = require('../engine/SocketEmit');
 const routes = require('../config/routes');
+const TelegramBot = require('node-telegram-bot-api');
+const token = '1875488441:AAG1OJjsJZC4lucjFq9E-ThSrq-TcDrm8do';
+const bot = new TelegramBot(token, {polling: true});
 
 /**Metodo che avvia il download del file video*/
 const download = (url, path, callback) => {
@@ -101,6 +104,8 @@ async function createNotification(lamp_id, alert_id) {
         });
 
         console.log("timer :", timer);
+
+        bot.sendMessage(-534207478, 'Rilevato ' + lamp_id.via + ' in via ' + lamp_id);
 
         //se l'anomalia che arriva è minimo di livello 1 e maggiore uguale a quella già esistente
         if (anomaly_level >= lamp[0].anomaly_level || lamp[0].anomaly_level === undefined) {

@@ -17,6 +17,7 @@
     "cors": "^2.8.5",
     "crypto-random-string": "^3.2.0",
     "express": "^4.17.1",
+    "file-system": "2.2.2",
     "helmet": "^3.22.0",
     "http-errors": "^1.7.3",
     "http-server": "^0.12.1",
@@ -29,6 +30,8 @@
     "mysql2": "^2.1.0",
     "node-onvif": "^0.1.7",
     "node-rtsp-stream": "0.0.9",
+    "node-telegram-bot-api": "^0.53.0",
+    "nodemon": "^2.0.7",
     "passport": "^0.4.1",
     "passport-http": "^0.3.0",
     "passport-jwt": "^4.0.0",
@@ -37,8 +40,7 @@
     "sendmail": "^1.6.1",
     "sequelize": "^5.21.5",
     "socket.io": "^2.3.0",
-    "web-push": "^3.4.4",
-    "file-system": "2.2.2"
+    "web-push": "^3.4.4"
   },
   "devDependencies": {
     "jasmine": "^3.6.3"
